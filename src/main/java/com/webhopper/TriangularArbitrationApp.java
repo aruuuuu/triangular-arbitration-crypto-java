@@ -2,14 +2,16 @@ package com.webhopper;
 
 import com.google.common.base.Stopwatch;
 import com.webhopper.business.DepthArbitrageCalculator;
+import com.webhopper.integrations.ExchangeMarketDataService;
 import com.webhopper.business.SurfaceArbitrageCalculator;
 import com.webhopper.business.StructureTriangles;
+import com.webhopper.entities.CryptoExchange;
 import com.webhopper.entities.DepthCalcState;
 import com.webhopper.entities.TriArbTrade;
 import com.webhopper.entities.Triangle;
-import com.webhopper.poloniex.PairQuote;
-import com.webhopper.poloniex.PoloniexApi;
-import com.webhopper.poloniex.PolonixService;
+import com.webhopper.integrations.poloniex.PoloniexApi;
+import com.webhopper.integrations.poloniex.PolonixService;
+import com.webhopper.integrations.poloniex.Quote;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,19 +27,19 @@ public class TriangularArbitrationApp {
     private static final Logger logger = LoggerFactory.getLogger(TriangularArbitrationApp.class);
 
     private final StructureTriangles structureTriangles;
-    private final PolonixService polonixService;
+    private final ExchangeMarketDataService exchangeMarketDataService;
 
     public TriangularArbitrationApp(
             final StructureTriangles structureTriangles,
-            final PolonixService polonixService) {
+            final ExchangeMarketDataService exchangeMarketDataService) {
         this.structureTriangles = structureTriangles;
-        this.polonixService = polonixService;
+        this.exchangeMarketDataService = exchangeMarketDataService;
     }
 
     public List<Triangle> structureTriangles() {
         Stopwatch timer = Stopwatch.createUnstarted();
         timer.start();
-        final List<Triangle> triangles = structureTriangles.structure();
+        final List<Triangle> triangles = structureTriangles.structure(CryptoExchange.POLONIEX);
         Stopwatch stop = timer.stop();
         logger.info("Structuring triangles took {}", stop);
         return triangles;
@@ -46,8 +48,9 @@ public class TriangularArbitrationApp {
     public static void main(String[] args)  {
         PoloniexApi poloniexApi = new PoloniexApi();
         PolonixService polonixService = new PolonixService(poloniexApi);
-        StructureTriangles structureTriangles = new StructureTriangles(polonixService);
-        TriangularArbitrationApp arbitrationApp = new TriangularArbitrationApp(structureTriangles, polonixService);
+        ExchangeMarketDataService exchangeMarketDataService = new ExchangeMarketDataService(polonixService, null);
+        StructureTriangles structureTriangles = new StructureTriangles(exchangeMarketDataService);
+        TriangularArbitrationApp arbitrationApp = new TriangularArbitrationApp(structureTriangles, exchangeMarketDataService);
         List<Triangle> triangles = arbitrationApp.structureTriangles();
         arbitrationApp.findArbitrageFromTriangles(triangles);
     }
@@ -55,9 +58,9 @@ public class TriangularArbitrationApp {
     private void findArbitrageFromTriangles(List<Triangle> triangles) {
         final double percentProfitExpected = 0;
 
-        final SurfaceArbitrageCalculator arbitrageCalculator = new SurfaceArbitrageCalculator(polonixService);
-        final DepthArbitrageCalculator realArbitrageCalculator = new DepthArbitrageCalculator(polonixService);
-        final Map<String, PairQuote> quotes = polonixService.getPricingInfo();
+        final SurfaceArbitrageCalculator arbitrageCalculator = new SurfaceArbitrageCalculator(exchangeMarketDataService);
+        final DepthArbitrageCalculator realArbitrageCalculator = new DepthArbitrageCalculator(exchangeMarketDataService);
+        final Map<String, Quote> quotes = exchangeMarketDataService.getPricingInfo(CryptoExchange.POLONIEX);
         List<TriArbTrade> profitableTrianglesByRealRate = new ArrayList<>();
         List<TriArbTrade> profitableTrianglesBySurfaceRate = new ArrayList<>();
 
@@ -69,7 +72,7 @@ public class TriangularArbitrationApp {
 
             for(TriArbTrade candidate : candidates) {
                 logSurfaceRateInfo(candidate);
-                TriArbTrade triArbTrade = realArbitrageCalculator.calculateDepthArbitrage(candidate);
+                TriArbTrade triArbTrade = realArbitrageCalculator.calculateCefiDepthArbitrage(candidate);
                logger.info(triArbTrade.prettyPrintTradeSummary());
 
                 if(triArbTrade.getDepthCalcState() == DepthCalcState.SUCCESSFULLY_CALCULATED

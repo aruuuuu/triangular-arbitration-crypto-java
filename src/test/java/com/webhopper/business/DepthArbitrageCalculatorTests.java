@@ -1,12 +1,12 @@
 package com.webhopper.business;
 
-import com.webhopper.entities.DepthCalcState;
-import com.webhopper.entities.TriArbTrade;
-import com.webhopper.entities.TriArbTradeLeg;
-import com.webhopper.entities.Triangle;
-import com.webhopper.poloniex.PairQuote;
-import com.webhopper.poloniex.PoloniexApi;
-import com.webhopper.poloniex.PolonixService;
+import com.webhopper.entities.*;
+import com.webhopper.integrations.ExchangeMarketDataService;
+import com.webhopper.integrations.poloniex.PoloniexApi;
+import com.webhopper.integrations.poloniex.PolonixService;
+import com.webhopper.integrations.poloniex.Quote;
+import com.webhopper.integrations.uniswap.UniswapApi;
+import com.webhopper.integrations.uniswap.UniswapService;
 import com.webhopper.utils.FileUtils;
 import org.junit.Assert;
 import org.junit.Before;
@@ -28,7 +28,14 @@ public class DepthArbitrageCalculatorTests {
     @Mock
     private PoloniexApi poloniexApi;
 
+    @Mock
+    private UniswapApi uniswapApi;
+
     private PolonixService polonixService;
+
+    private UniswapService uniswapService;
+
+    private ExchangeMarketDataService exchangeMarketDataService;
 
     private StructureTriangles structureTriangles;
 
@@ -37,35 +44,38 @@ public class DepthArbitrageCalculatorTests {
     @Before
     public void setup() throws IOException {
         polonixService = new PolonixService(poloniexApi);
-        structureTriangles = new StructureTriangles(polonixService);
-        depthArbitrageCalculator = new DepthArbitrageCalculator(polonixService);
+        uniswapService = new UniswapService(uniswapApi);
+        exchangeMarketDataService = new ExchangeMarketDataService(polonixService, uniswapService);
+
+        structureTriangles = new StructureTriangles(exchangeMarketDataService);
+        depthArbitrageCalculator = new DepthArbitrageCalculator(exchangeMarketDataService);
     }
 
     @Test
     public void testProfitableSurfaceArbitrageCalculatedCorrectly() throws IOException {
         // 1: Create triangle.
-        final String json = FileUtils.fileInResourceFolderToString(this.getClass().getClassLoader(), "ticker_for_1_unprofitable_triangle.json");
+        final String json = FileUtils.fileInResourceFolderToString(this.getClass().getClassLoader(), "poloniex__ticker_for_1_unprofitable_triangle.json");
         when(poloniexApi.getPricesFromFileOrApiCall(anyBoolean())).thenReturn(json);
-        List<Triangle> triangles = structureTriangles.structure();
+        List<Triangle> triangles = structureTriangles.structure(CryptoExchange.POLONIEX);
         final Triangle triangle = triangles.get(0);
 
-        final Map<String, PairQuote> quotes = polonixService.getPricingInfo();
+        final Map<String, Quote> quotes = polonixService.getPricingInfo();
 
         // 2: Calculate surface rate
-        final SurfaceArbitrageCalculator arbitrageCalculator = new SurfaceArbitrageCalculator(polonixService);
+        final SurfaceArbitrageCalculator arbitrageCalculator = new SurfaceArbitrageCalculator(exchangeMarketDataService);
         final List<TriArbTrade> candidates = arbitrageCalculator.calculateSurfaceArbitrage(triangles.get(0), quotes, new BigDecimal(500));
         Assert.assertEquals(2, candidates.size());// There should be only one triangle in that file loaded above.
         TriArbTrade fullTriArbTradeForward = candidates.get(0);
         TriArbTrade fullTriArbTradeReverse = candidates.get(1);
 
-        mockOrderBookCallForPair(triangle.getA().getPair());
-        mockOrderBookCallForPair(triangle.getB().getPair());
-        mockOrderBookCallForPair(triangle.getC().getPair());
+        mockOrderBookCallForPair(triangle.getPairA().getPair());
+        mockOrderBookCallForPair(triangle.getPairB().getPair());
+        mockOrderBookCallForPair(triangle.getPairC().getPair());
 
-        TriArbTrade triArbTradeForward = depthArbitrageCalculator.calculateDepthArbitrage(fullTriArbTradeForward);
+        TriArbTrade triArbTradeForward = depthArbitrageCalculator.calculateCefiDepthArbitrage(fullTriArbTradeForward);
         Assert.assertEquals(DepthCalcState.NOT_ENOUGH_BOOK_DEPTH, triArbTradeForward.getDepthCalcState());
 
-        TriArbTrade triArbTradeReverse = depthArbitrageCalculator.calculateDepthArbitrage(fullTriArbTradeReverse);
+        TriArbTrade triArbTradeReverse = depthArbitrageCalculator.calculateCefiDepthArbitrage(fullTriArbTradeReverse);
         Assert.assertEquals(DepthCalcState.SUCCESSFULLY_CALCULATED, triArbTradeReverse.getDepthCalcState());
 
         TriArbTradeLeg leg1 = triArbTradeReverse.getLeg1();
@@ -83,7 +93,7 @@ public class DepthArbitrageCalculatorTests {
     }
 
     private void mockOrderBookCallForPair(String pairName) throws IOException {
-        final String fileName = pairName + "_order_book.json";
+        final String fileName = "poloniex__" + pairName + "_order_book.json";
         final String json = FileUtils.fileInResourceFolderToString(this.getClass().getClassLoader(), fileName);
         when(poloniexApi.httpGetOrderBookForPair(eq(pairName))).thenReturn(json);
     }

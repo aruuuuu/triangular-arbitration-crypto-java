@@ -1,9 +1,9 @@
 package com.webhopper.business;
 
 import com.webhopper.entities.*;
-import com.webhopper.poloniex.BookEntry;
-import com.webhopper.poloniex.OrderBook;
-import com.webhopper.poloniex.PolonixService;
+import com.webhopper.integrations.ExchangeMarketDataService;
+import com.webhopper.integrations.poloniex.BookEntry;
+import com.webhopper.integrations.poloniex.OrderBook;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,14 +15,18 @@ import java.util.List;
 public class DepthArbitrageCalculator {
     private static final Logger logger = LoggerFactory.getLogger(DepthArbitrageCalculator.class);
 
-    private PolonixService poloniexService;
+    private final ExchangeMarketDataService exchangeMarketDataService;
 
-    public DepthArbitrageCalculator(PolonixService poloniexService) {
-        this.poloniexService = poloniexService;
+    public DepthArbitrageCalculator(final ExchangeMarketDataService exchangeMarketDataService) {
+        this.exchangeMarketDataService = exchangeMarketDataService;
 
     }
+    public TriArbTrade calculateUniswapDepthArbitrage(final TriArbTrade triArbTrade) {
 
-    public TriArbTrade calculateDepthArbitrage(final TriArbTrade triArbTrade) {
+        return null;
+    }
+
+    public TriArbTrade calculateCefiDepthArbitrage(final TriArbTrade triArbTrade) {
         final TriArbTradeLeg leg1 = triArbTrade.getLeg1();
         final String leg1Pair = leg1.getPair().getPair();
         final TriArbTradeLeg leg2 = triArbTrade.getLeg2();
@@ -30,9 +34,9 @@ public class DepthArbitrageCalculator {
         final TriArbTradeLeg leg3 = triArbTrade.getLeg3();
         final String leg3Pair = leg3.getPair().getPair();
 
-        final OrderBook bookForleg1Pair = poloniexService.getBookForPair(leg1Pair);
-        final OrderBook bookForLeg2Pair = poloniexService.getBookForPair(leg2Pair);
-        final OrderBook bookForLeg3Pair = poloniexService.getBookForPair(leg3Pair);
+        final OrderBook bookForleg1Pair = exchangeMarketDataService.getBookForPair(leg1Pair);
+        final OrderBook bookForLeg2Pair = exchangeMarketDataService.getBookForPair(leg2Pair);
+        final OrderBook bookForLeg3Pair = exchangeMarketDataService.getBookForPair(leg3Pair);
 
         //todo: write tests on the book repricing algo for sanity check.
         final List<BookEntry> repriceForLeg1Calculation = reformatOrderbook(bookForleg1Pair, leg1.getPairTradeDirection());

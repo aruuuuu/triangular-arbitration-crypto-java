@@ -1,12 +1,10 @@
 package com.webhopper.business;
 
-import com.webhopper.entities.TriArbTrade;
-import com.webhopper.entities.PairTradeDirection;
-import com.webhopper.entities.TriArbTradeLeg;
-import com.webhopper.entities.Triangle;
-import com.webhopper.poloniex.PairQuote;
-import com.webhopper.poloniex.PoloniexApi;
-import com.webhopper.poloniex.PolonixService;
+import com.webhopper.entities.*;
+import com.webhopper.integrations.ExchangeMarketDataService;
+import com.webhopper.integrations.poloniex.*;
+import com.webhopper.integrations.uniswap.UniswapApi;
+import com.webhopper.integrations.uniswap.UniswapService;
 import com.webhopper.utils.FileUtils;
 import org.junit.Assert;
 import org.junit.Before;
@@ -29,29 +27,35 @@ import static org.mockito.Mockito.when;
 @RunWith(MockitoJUnitRunner.class)
 public class SurfaceArbitrageCalculatorTests {
     @Mock
+    private UniswapApi uniswapApi;
+    @Mock
     private PoloniexApi poloniexApi;
 
     private PolonixService polonixService;
+    private UniswapService uniswapService;
+    private ExchangeMarketDataService exchangeMarketDataService;
 
     private StructureTriangles structureTriangles;
 
     @Before
     public void setup() throws IOException {
         polonixService = new PolonixService(poloniexApi);
-        structureTriangles = new StructureTriangles(polonixService);
+        uniswapService = new UniswapService(uniswapApi);
+        exchangeMarketDataService = new ExchangeMarketDataService(polonixService, uniswapService);
+        structureTriangles = new StructureTriangles(exchangeMarketDataService);
     }
 
     @Test
-    public void testProfitableSurfaceArbitrageCalculatedCorrectly() throws IOException {
+    public void testPoloniexProfitableSurfaceArbitrageCalculatedCorrectly() throws IOException {
         // 1: Create triangles.
-        final String json = FileUtils.fileInResourceFolderToString(this.getClass().getClassLoader(), "ticker_for_1_profitable_triangle.json");
+        final String json = FileUtils.fileInResourceFolderToString(this.getClass().getClassLoader(), "poloniex__ticker_for_1_profitable_triangle.json");
         when(poloniexApi.getPricesFromFileOrApiCall(anyBoolean())).thenReturn(json);
-        List<Triangle> triangles = structureTriangles.structure();
+        List<Triangle> triangles = structureTriangles.structure(CryptoExchange.POLONIEX);
 
-        final Map<String, PairQuote> quotes = polonixService.getPricingInfo();
+        final Map<String, Quote> quotes = polonixService.getPricingInfo();
 
         // 2: Calculate surface rate
-        final SurfaceArbitrageCalculator arbitrageCalculator = new SurfaceArbitrageCalculator(polonixService);
+        final SurfaceArbitrageCalculator arbitrageCalculator = new SurfaceArbitrageCalculator(exchangeMarketDataService);
         final List<TriArbTrade> candidates = arbitrageCalculator.calculateSurfaceArbitrage(triangles.get(0), quotes, new BigDecimal(500));
         Assert.assertEquals(2, candidates.size());// There should be only one triangle in that file loaded above.
         TriArbTrade fullTriArbTradeForward = candidates.get(0);
@@ -62,16 +66,16 @@ public class SurfaceArbitrageCalculatorTests {
     }
 
     @Test
-    public void testUnprofitableSurfaceArbitrageCalculatedCorrectly() throws IOException {
+    public void testPoloniexUnprofitableSurfaceArbitrageCalculatedCorrectly() throws IOException {
         // 1: Create triangles.
-        final String json = FileUtils.fileInResourceFolderToString(this.getClass().getClassLoader(), "ticker_for_1_unprofitable_triangle.json");
+        final String json = FileUtils.fileInResourceFolderToString(this.getClass().getClassLoader(), "poloniex__ticker_for_1_unprofitable_triangle.json");
         when(poloniexApi.getPricesFromFileOrApiCall(anyBoolean())).thenReturn(json);
-        List<Triangle> triangles = structureTriangles.structure();
+        List<Triangle> triangles = structureTriangles.structure(CryptoExchange.POLONIEX);
 
-        final Map<String, PairQuote> quotes = polonixService.getPricingInfo();
+        final Map<String, Quote> quotes = exchangeMarketDataService.getPricingInfo(CryptoExchange.POLONIEX);
 
         // 2: Calculate surface rate
-        final SurfaceArbitrageCalculator arbitrageCalculator = new SurfaceArbitrageCalculator(polonixService);
+        final SurfaceArbitrageCalculator arbitrageCalculator = new SurfaceArbitrageCalculator(exchangeMarketDataService);
         final List<TriArbTrade> candidates = arbitrageCalculator.calculateSurfaceArbitrage(triangles.get(0), quotes, new BigDecimal(500));
         Assert.assertEquals(2, candidates.size());// There should be only one triangle in that file loaded above.
         TriArbTrade fullTriArbTradeForward = candidates.get(0);
@@ -79,6 +83,26 @@ public class SurfaceArbitrageCalculatorTests {
 
         verifyCalculations(quotes, fullTriArbTradeForward, BASE_TO_QUOTE, QUOTE_TO_BASE, BASE_TO_QUOTE);
         verifyCalculations(quotes, fullTriArbTradeReverse, QUOTE_TO_BASE, QUOTE_TO_BASE, BASE_TO_QUOTE);
+    }
+
+    @Test
+    public void testUniswapProfitableSurfaceArbitrageCalculatedCorrectly() throws IOException {
+        // 1: Create triangles.
+        final String json = FileUtils.fileInResourceFolderToString(this.getClass().getClassLoader(), "uniswap__ticker_for_1_profitable_triangle.json");
+        when(uniswapApi.getPricesFromFileOrApiCall(anyBoolean())).thenReturn(json);
+        List<Triangle> triangles = structureTriangles.structure(CryptoExchange.UNISWAP);
+
+        final Map<String, Quote> quotes = uniswapService.getPricingInfo();
+
+        // 2: Calculate surface rate
+        final SurfaceArbitrageCalculator arbitrageCalculator = new SurfaceArbitrageCalculator(exchangeMarketDataService);
+        final List<TriArbTrade> candidates = arbitrageCalculator.calculateSurfaceArbitrage(triangles.get(0), quotes, new BigDecimal(500));
+        Assert.assertEquals(2, candidates.size());// There should be only one triangle in that file loaded above.
+        TriArbTrade fullTriArbTradeForward = candidates.get(0);
+        TriArbTrade fullTriArbTradeReverse = candidates.get(1);
+
+        verifyCalculations(quotes, fullTriArbTradeForward, BASE_TO_QUOTE, BASE_TO_QUOTE, QUOTE_TO_BASE);
+        verifyCalculations(quotes, fullTriArbTradeReverse, QUOTE_TO_BASE, BASE_TO_QUOTE, QUOTE_TO_BASE);
     }
 
     private void verifyCoinsInAndOutOfLegsAReCompatible(TriArbTradeLeg leg1, TriArbTradeLeg leg2, TriArbTradeLeg leg3) {
@@ -87,7 +111,7 @@ public class SurfaceArbitrageCalculatorTests {
         Assert.assertEquals(leg3.getCoinOut(), leg1.getCoinIn());
     }
 
-    private void verifyCalculations(Map<String, PairQuote> quotes, TriArbTrade fullTriArbTrade,
+    private void verifyCalculations(Map<String, Quote> quotes, TriArbTrade fullTriArbTrade,
                                     PairTradeDirection leg1Direction, PairTradeDirection leg2Direction, PairTradeDirection leg3Direction) {
         TriArbTradeLeg leg1 = fullTriArbTrade.getLeg1();
         TriArbTradeLeg leg2 = fullTriArbTrade.getLeg2();
@@ -131,15 +155,25 @@ public class SurfaceArbitrageCalculatorTests {
         Assert.assertEquals(expectedProfitPercent, fullTriArbTrade.getSurfaceCalcProfitPercent());
     }
 
-    private BigDecimal calculateExpectedSwapRate(final TriArbTradeLeg leg, final Map<String, PairQuote> quotes) {
-        final PairQuote quote = quotes.get(leg.getPair().getPair());
+    private BigDecimal calculateExpectedSwapRate(final TriArbTradeLeg leg, final Map<String, Quote> quotes) {
+        final Quote quote = quotes.get(leg.getPair().getPair());
 
-        if(leg.getPairTradeDirection() == BASE_TO_QUOTE) {
-            return new BigDecimal(1).divide(quote.getAsk(), 7, RoundingMode.HALF_UP);
-        } else if(leg.getPairTradeDirection() == QUOTE_TO_BASE) {
-            return quote.getBid();
-        } else {
-            return null;
+        if(quote.getCryptoExchange() == CryptoExchange.POLONIEX) {
+            if (leg.getPairTradeDirection() == BASE_TO_QUOTE) {
+                return new BigDecimal(1).divide(((PoloniexQuote) quote).getAsk(), 7, RoundingMode.HALF_UP);
+            } else if (leg.getPairTradeDirection() == QUOTE_TO_BASE) {
+                return ((PoloniexQuote) quote).getBid();
+            }
         }
+
+        if(quote.getCryptoExchange() == CryptoExchange.UNISWAP) {
+            if (leg.getPairTradeDirection() == BASE_TO_QUOTE) {
+                return ((UniswapQuote)quote).getToken1Price();
+            } else if (leg.getPairTradeDirection() == QUOTE_TO_BASE) {
+                return ((UniswapQuote)quote).getToken0Price();
+            }
+        }
+
+        return null;
     }
 }

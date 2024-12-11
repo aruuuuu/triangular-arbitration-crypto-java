@@ -1,10 +1,13 @@
 package com.webhopper.business;
 
-import com.webhopper.business.StructureTriangles;
+import com.webhopper.entities.CryptoExchange;
 import com.webhopper.entities.Pair;
 import com.webhopper.entities.Triangle;
-import com.webhopper.poloniex.PoloniexApi;
-import com.webhopper.poloniex.PolonixService;
+import com.webhopper.integrations.ExchangeMarketDataService;
+import com.webhopper.integrations.poloniex.PoloniexApi;
+import com.webhopper.integrations.poloniex.PolonixService;
+import com.webhopper.integrations.uniswap.UniswapApi;
+import com.webhopper.integrations.uniswap.UniswapService;
 import com.webhopper.utils.FileUtils;
 import org.junit.Before;
 import org.junit.Test;
@@ -20,7 +23,8 @@ import java.util.Map;
 
 import static org.hamcrest.CoreMatchers.not;
 import static org.hamcrest.Matchers.containsInAnyOrder;
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThat;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.when;
 
@@ -28,22 +32,44 @@ import static org.mockito.Mockito.when;
 public class StructureTrianglesTests {
     @Mock
     private PoloniexApi poloniexApi;
+    @Mock
+    private UniswapApi uniswapApi;
 
     private PolonixService polonixService;
+    private UniswapService uniswapService;
+    private ExchangeMarketDataService exchangeMarketDataService;
 
     private StructureTriangles structureTriangles;
 
     @Before
     public void setup() throws IOException {
         polonixService = new PolonixService(poloniexApi);
-        structureTriangles = new StructureTriangles(polonixService);
+        uniswapService = new UniswapService(uniswapApi);
+        exchangeMarketDataService = new ExchangeMarketDataService(polonixService, uniswapService);
+        structureTriangles = new StructureTriangles(exchangeMarketDataService);
     }
 
     @Test
     public void testCorrectTrianglesFound() throws IOException {
-        final String json = FileUtils.fileInResourceFolderToString(this.getClass().getClassLoader(), "tickers_for_3_triangles.json");
+        final String json = FileUtils.fileInResourceFolderToString(this.getClass().getClassLoader(), "poloniex__tickers_for_3_triangles.json");
         when(poloniexApi.getPricesFromFileOrApiCall(anyBoolean())).thenReturn(json);
-        List<Triangle> triangles = structureTriangles.structure();
+        List<Triangle> triangles = structureTriangles.structure(CryptoExchange.POLONIEX);
+
+        assertEquals(3, triangles.size());
+
+        checkThatNoDuplicateTrianglesCreated(triangles);
+
+        for(Triangle triangle : triangles) {
+            checkThatTriangleIsCorrectlyFormed(triangle);
+        }
+
+    }
+
+    @Test
+    public void testCorrectUniswapTrianglesFound() throws IOException {
+        final String json = FileUtils.fileInResourceFolderToString(this.getClass().getClassLoader(), "uniswap__tickers_for_3_triangles.json");
+        when(uniswapApi.getPricesFromFileOrApiCall(anyBoolean())).thenReturn(json);
+        List<Triangle> triangles = structureTriangles.structure(CryptoExchange.UNISWAP);
 
         assertEquals(3, triangles.size());
 
@@ -66,12 +92,12 @@ public class StructureTrianglesTests {
         final Map<String, Integer> countPerCoin = new HashMap<>();
 
         List<String> coins = new ArrayList<>();
-        coins.add(triangle.getBaseA());
-        coins.add(triangle.getBaseB());
-        coins.add(triangle.getBaseC());
-        coins.add(triangle.getQuoteA());
-        coins.add(triangle.getQuoteB());
-        coins.add(triangle.getQuoteC());
+        coins.add(triangle.getPairA().getBase());
+        coins.add(triangle.getPairB().getBase());
+        coins.add(triangle.getPairC().getBase());
+        coins.add(triangle.getPairA().getQuote());
+        coins.add(triangle.getPairB().getQuote());
+        coins.add(triangle.getPairC().getQuote());
 
         for(String coin : coins) {
             Integer countForSingleCoin = countPerCoin.get(coin);
@@ -99,15 +125,15 @@ public class StructureTrianglesTests {
     }
 
     private void verifyTradingPathPossible(Triangle triangle) {
-        final Pair pairA = triangle.getA();
+        final Pair pairA = triangle.getPairA();
         String baseA = pairA.getBase();
         String quoteA = pairA.getQuote();
 
-        final Pair pairB = triangle.getB();
+        final Pair pairB = triangle.getPairB();
         String baseB = pairB.getBase();
         String quoteB = pairB.getQuote();
 
-        final Pair pairC = triangle.getC();
+        final Pair pairC = triangle.getPairC();
         String baseC = pairC.getBase();
         String quoteC = pairC.getQuote();
 
@@ -171,21 +197,21 @@ public class StructureTrianglesTests {
     private void checkThatNoDuplicateTrianglesCreated(final List<Triangle> triangles) {
         List<String> pairsInTriangle1 = new ArrayList<>();
         Triangle triangle1 = triangles.get(0);
-        pairsInTriangle1.add(triangle1.getA().getPair());
-        pairsInTriangle1.add(triangle1.getB().getPair());
-        pairsInTriangle1.add(triangle1.getC().getPair());
+        pairsInTriangle1.add(triangle1.getPairA().getPair());
+        pairsInTriangle1.add(triangle1.getPairB().getPair());
+        pairsInTriangle1.add(triangle1.getPairC().getPair());
 
         List<String> pairsInTriangle2 = new ArrayList<>();
         Triangle triangle2 = triangles.get(1);
-        pairsInTriangle2.add(triangle2.getA().getPair());
-        pairsInTriangle2.add(triangle2.getB().getPair());
-        pairsInTriangle2.add(triangle2.getC().getPair());
+        pairsInTriangle2.add(triangle2.getPairA().getPair());
+        pairsInTriangle2.add(triangle2.getPairB().getPair());
+        pairsInTriangle2.add(triangle2.getPairC().getPair());
 
         List<String> pairsInTriangle3 = new ArrayList<>();
         Triangle triangle3 = triangles.get(2);
-        pairsInTriangle3.add(triangle3.getA().getPair());
-        pairsInTriangle3.add(triangle3.getB().getPair());
-        pairsInTriangle3.add(triangle3.getC().getPair());
+        pairsInTriangle3.add(triangle3.getPairA().getPair());
+        pairsInTriangle3.add(triangle3.getPairB().getPair());
+        pairsInTriangle3.add(triangle3.getPairC().getPair());
 
         assertThat(pairsInTriangle1, not(containsInAnyOrder(pairsInTriangle2.toArray())));
         assertThat(pairsInTriangle1, not(containsInAnyOrder(pairsInTriangle2.toArray())));
